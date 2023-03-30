@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Purpulse</string>
+    <string name="warn">把手指靠近相機鏡頭，調整直到閃爍，然後保持靜止。</string>
+    <string name="about">關於</string>
+    <string name="your_approximate_heart_rate_is">您的大致心率是：</string>
+    <string name="xx_bpm">XX BPM</string>
+    <string name="legend">級距：</string>
+    <string name="good_heart_rate">良好</string>
+    <string name="warning_light_red">警告</string>
+    <string name="danger">危險</string>
+</resources>
