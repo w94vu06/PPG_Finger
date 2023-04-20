@@ -8,8 +8,8 @@
         android:id="@+id/texture"
         android:layout_width="150dp"
         android:layout_height="150dp"
-        android:layout_weight="0"
         android:layout_gravity="center"
+        android:layout_weight="0"
         android:screenOrientation="portrait" />
 
     <FrameLayout
