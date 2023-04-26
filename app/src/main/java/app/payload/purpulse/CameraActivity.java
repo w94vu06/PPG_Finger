@@ -16,6 +16,7 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
@@ -79,6 +80,7 @@ public class CameraActivity extends AppCompatActivity {
     private FilterAndIQR filterAndIQR;
     //Wave
     List<Float> exampleWave = Arrays.asList(40f, 25f, 10f, 90f, 75f, 60f, 50f);
+    private CountDownTimer countDownTimer;
 
     @SuppressLint("MissingInflatedId")
     @Override
@@ -184,13 +186,29 @@ public class CameraActivity extends AppCompatActivity {
                         mNumBeats++;
 
                         if (mNumBeats > prevNumBeats) {
-                            waveUtil.showWaveData(waveShowView, exampleWave);
-                        } else {
-                            prevNumBeats = mNumBeats;
-                        }
+                            new HandlerThread("CountDownThread"){
+                                protected void onLooperPrepared(){
+                                    countDownTimer = new CountDownTimer(1000L * 30,1000L) {
+                                        @Override
+                                        public void onTick(long l) {
 
+                                        }
+
+                                        @Override
+                                        public void onFinish() {
+                                            calcBPM();
+                                            mNumBeats = captureRate;
+                                        }
+                                    };
+                                    countDownTimer.start();
+                                }
+                            }.start();
+                            waveUtil.showWaveData(waveShowView, exampleWave);
+                        }
+                        prevNumBeats = mNumBeats;
                         heartBeatCount.setText("檢測到的心跳次數：" + mNumBeats);
                         if (mNumBeats == captureRate) {
+                            cancelCountDownTimer();
                             calcBPM();
                             closeCamera();
                             waveUtil.stop();
@@ -208,6 +226,12 @@ public class CameraActivity extends AppCompatActivity {
             }
         }
     };
+
+    public void cancelCountDownTimer() {
+        if (countDownTimer != null) {
+            countDownTimer.cancel();
+        }
+    }
 
     private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
         @Override
@@ -267,7 +291,7 @@ public class CameraActivity extends AppCompatActivity {
         heart_rate_bpm = 60000 / med;
         heartBeatCount.setText("RMSSD：" + RMSSD + "\n" + "SDNN：" + SDNN + "\n" + "BPM：" + heart_rate_bpm);
         BottomSheetDialog dialog = new BottomSheetDialog().passData(heart_rate_bpm);
-        dialog.show(getSupportFragmentManager(), "tag?");
+//        dialog.show(getSupportFragmentManager(), "tag?");
         onPause();
     }
 
