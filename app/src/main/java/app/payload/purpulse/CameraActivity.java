@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -17,7 +16,6 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Bundle;
-import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
@@ -28,7 +26,6 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
-import android.widget.Filter;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -36,11 +33,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-
-import com.github.mikephil.charting.charts.LineChart;
-import com.github.mikephil.charting.data.Entry;
-import com.github.mikephil.charting.data.LineData;
-import com.github.mikephil.charting.data.LineDataSet;
 
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -52,7 +44,7 @@ import java.util.TimerTask;
 
 
 public class CameraActivity extends AppCompatActivity {
-    private TextureView textureView;
+    private TextureView CameraView;
     protected CameraDevice cameraDevice;
     protected CameraCaptureSession cameraCaptureSessions;
     protected CaptureRequest.Builder captureRequestBuilder;
@@ -67,7 +59,7 @@ public class CameraActivity extends AppCompatActivity {
     public static int heart_rate_bpm;
     private final int captureRate = 35;
     // detectTime
-    private final int durationDetection = 39;
+    private final int setHeartDetectTime = 39;
     private int mCurrentRollingAverage;
     private int mLastRollingAverage;
     private int mLastLastRollingAverage;
@@ -85,6 +77,8 @@ public class CameraActivity extends AppCompatActivity {
     private WaveShowView waveShowView;
     //IQR
     private FilterAndIQR filterAndIQR;
+    //Wave
+    List<Float> exampleWave = Arrays.asList(40f, 25f, 10f, 90f, 75f, 60f, 50f);
 
     @SuppressLint("MissingInflatedId")
     @Override
@@ -94,17 +88,43 @@ public class CameraActivity extends AppCompatActivity {
         setContentView(R.layout.activity_camera);
 
         mTimeArray = new long[captureRate];
-        textureView = findViewById(R.id.texture);
+        CameraView = findViewById(R.id.texture);
         btn_restart = findViewById(R.id.btn_restart);
         heartBeatCount = findViewById(R.id.heartBeatCount);
         scv_text = findViewById(R.id.scv_text);
-        textureView.setSurfaceTextureListener(textureListener);
+        CameraView.setSurfaceTextureListener(textureListener);
 
         waveShowView = findViewById(R.id.waveView);
         waveUtil = new WaveUtil();
         filterAndIQR = new FilterAndIQR();
         initBarAndRestartBtn();
         waveShowView.resetCanavas();
+
+    }
+
+    public void initValue() {
+        numCaptures = 0;
+        mNumBeats = 0;
+        prevNumBeats = 0;
+    }
+
+    public void initBarAndRestartBtn() {
+        //關閉標題列
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            actionBar.hide();
+        }
+
+        btn_restart.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                heartBeatCount.setText("量測準備中...");
+                closeCamera();
+                onResume();
+                initValue();
+                waveShowView.resetCanavas();
+            }
+        });
     }
 
 
@@ -125,44 +145,35 @@ public class CameraActivity extends AppCompatActivity {
 
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-            Bitmap bmp = textureView.getBitmap();
-            Bitmap redCheck = textureView.getBitmap();
+            Bitmap bmp = CameraView.getBitmap();
             int width = bmp.getWidth();
             int height = bmp.getHeight();
             int[] pixels = new int[height * width];
+            int[] pixelsFullScreen = new int[height * width];
 
-            List<Float> pulseDataList = Arrays.asList(40f, 25f, 10f, 90f, 75f, 60f, 50f);
+            bmp.getPixels(pixelsFullScreen, 0, width, 0, 0, width, height);//get full screen and main to detect
+            bmp.getPixels(pixels, 0, width, width / 2, height / 2, width / 10, height / 10);//get small screen
 
-            // Get pixels from the bitmap, starting at (x,y) = (width/2,height/2) and totaling width/20 rows and height/20 columns
-//            bmp.getPixels(pixels, 0, width, width / 2, height / 2, width / 10, height / 10);
-            bmp.getPixels(pixels, 0, width, 0, 0, width, height);
+            int sum = 0; //main to detect Full screen
+            int redThreshold = 0;//red threshold
 
-            int sum = 0;
-            int sumG = 0;
-            int sumB = 0;
             for (int i = 0; i < height * width; i++) {
                 int red = (pixels[i] >> 16) & 0xFF;
-                int green = (pixels[i] >> 8) & 0xFF;
-                int blue = pixels[i] & 0xFF;
-                sum = sum + red;
-                sumG += green;
-                sumB += blue;
+                int redFull = (pixelsFullScreen[i] >> 16) & 0xFF;
+                sum += redFull;
+                redThreshold += red;
             }
-            int averageRed = sum / (height * width); // 整個畫面紅色平均值
-            int averageGreen = sumG / (height * width); // 整個畫面紅色平均值
-            int averageBlue = sumB / (height * width); // 整個畫面紅色平均值
-            Log.d("bbbb", "onSurfaceTextureUpdated: "+averageRed);
-            Log.d("vvvv", "Green : "+averageGreen+"/"+"Blue : "+averageBlue);
+            int averageThreshold = redThreshold / (height * width);//取閥值 0 1 2
 
-            if (averageRed > 1) {
+            if (averageThreshold == 2) {
                 // Waits 20 captures, to remove startup artifacts.  First average is the sum.
-                if (numCaptures == durationDetection) {
+                if (numCaptures == setHeartDetectTime) {
                     mCurrentRollingAverage = sum;
                 }
                 // Next 18 averages needs to incorporate the sum with the correct N multiplier
                 // in rolling average.
-                else if (numCaptures > durationDetection && numCaptures < 59) {
-                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - durationDetection) + sum) / (numCaptures - (durationDetection - 1));
+                else if (numCaptures > setHeartDetectTime && numCaptures < 59) {
+                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + sum) / (numCaptures - (setHeartDetectTime - 1));
                 }
 
                 // From 49 on, the rolling average incorporates the last 30 rolling averages.
@@ -171,10 +182,13 @@ public class CameraActivity extends AppCompatActivity {
                     if (mLastRollingAverage > mCurrentRollingAverage && mLastRollingAverage > mLastLastRollingAverage && mNumBeats < captureRate) {
                         mTimeArray[mNumBeats] = System.currentTimeMillis();
                         mNumBeats++;
+
                         if (mNumBeats > prevNumBeats) {
-//                        waveUtil.showWaveData(waveShowView, pulseDataList);
+                            waveUtil.showWaveData(waveShowView, exampleWave);
+                        } else {
+                            prevNumBeats = mNumBeats;
                         }
-                        prevNumBeats = mNumBeats;
+
                         heartBeatCount.setText("檢測到的心跳次數：" + mNumBeats);
                         if (mNumBeats == captureRate) {
                             calcBPM();
@@ -189,7 +203,7 @@ public class CameraActivity extends AppCompatActivity {
                 // Save previous two values
                 mLastLastRollingAverage = mLastRollingAverage;
                 mLastRollingAverage = mCurrentRollingAverage;
-            }else{
+            } else {
                 heartBeatCount.setText("請把手指貼緊鏡頭");
             }
         }
@@ -259,7 +273,7 @@ public class CameraActivity extends AppCompatActivity {
 
     protected void createCameraPreview() {
         try {
-            SurfaceTexture texture = textureView.getSurfaceTexture();
+            SurfaceTexture texture = CameraView.getSurfaceTexture();
             assert texture != null;
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
             Surface surface = new Surface(texture);
@@ -342,10 +356,10 @@ public class CameraActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         startBackgroundThread();
-        if (textureView.isAvailable()) {
+        if (CameraView.isAvailable()) {
             openCamera();
         } else {
-            textureView.setSurfaceTextureListener(textureListener);
+            CameraView.setSurfaceTextureListener(textureListener);
         }
     }
 
@@ -406,7 +420,7 @@ public class CameraActivity extends AppCompatActivity {
         return Math.sqrt(rmssd);
     }
 
-    public class WaveUtil {
+    public static class WaveUtil {
         private Timer timer;
         private TimerTask timerTask;
         private final List<Float> mWaveDataList = new ArrayList<>();
@@ -456,30 +470,6 @@ public class CameraActivity extends AppCompatActivity {
 
 
 
-    public void initValue() {
-        numCaptures = 0;
-        mNumBeats = 0;
-        prevNumBeats = 0;
-    }
-
-    public void initBarAndRestartBtn() {
-        //關閉標題列
-        ActionBar actionBar = getSupportActionBar();
-        if (actionBar != null) {
-            actionBar.hide();
-        }
-
-        btn_restart.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                heartBeatCount.setText("量測準備中...");
-                closeCamera();
-                onResume();
-                initValue();
-                waveShowView.resetCanavas();
-            }
-        });
-    }
 
 
 }
