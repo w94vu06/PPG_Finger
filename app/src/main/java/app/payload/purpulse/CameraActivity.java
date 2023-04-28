@@ -19,6 +19,7 @@ import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Message;
 import android.util.Log;
 import android.util.Size;
 import android.view.Menu;
@@ -35,13 +36,28 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.IOException;
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
+
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 
 public class CameraActivity extends AppCompatActivity {
@@ -72,14 +88,16 @@ public class CameraActivity extends AppCompatActivity {
 
     private TextView heartBeatCount;
     private TextView scv_text;
+    private TextView time_countDown;
     private Button btn_restart;
     //chartDraw
     private WaveUtil waveUtil;
     private WaveShowView waveShowView;
     //IQR
     private FilterAndIQR filterAndIQR;
+    private JsonUpload jsonUpload;
     //Wave
-    List<Float> exampleWave = Arrays.asList(40f, 25f, 10f, 90f, 75f, 60f, 50f);
+    List<Float> exampleWave = Arrays.asList(50f, 40f, 25f, 10f, 90f, 75f, 60f, 50f);
     private CountDownTimer countDownTimer;
 
     @SuppressLint("MissingInflatedId")
@@ -94,11 +112,13 @@ public class CameraActivity extends AppCompatActivity {
         btn_restart = findViewById(R.id.btn_restart);
         heartBeatCount = findViewById(R.id.heartBeatCount);
         scv_text = findViewById(R.id.scv_text);
+        time_countDown = findViewById(R.id.time_countDown);
         CameraView.setSurfaceTextureListener(textureListener);
 
         waveShowView = findViewById(R.id.waveView);
         waveUtil = new WaveUtil();
         filterAndIQR = new FilterAndIQR();
+        jsonUpload = new JsonUpload();
         initBarAndRestartBtn();
         waveShowView.resetCanavas();
 
@@ -156,56 +176,36 @@ public class CameraActivity extends AppCompatActivity {
             bmp.getPixels(pixelsFullScreen, 0, width, 0, 0, width, height);//get full screen and main to detect
             bmp.getPixels(pixels, 0, width, width / 2, height / 2, width / 10, height / 10);//get small screen
 
-            int sum = 0; //main to detect Full screen
+            int fullScreenRed = 0; //main to detect Full screen
             int redThreshold = 0;//red threshold
 
             for (int i = 0; i < height * width; i++) {
                 int red = (pixels[i] >> 16) & 0xFF;
                 int redFull = (pixelsFullScreen[i] >> 16) & 0xFF;
-                sum += redFull;
+                fullScreenRed += redFull;
                 redThreshold += red;
             }
             int averageThreshold = redThreshold / (height * width);//取閥值 0 1 2
 
             if (averageThreshold == 2) {
+
                 // Waits 20 captures, to remove startup artifacts.  First average is the sum.
                 if (numCaptures == setHeartDetectTime) {
-                    mCurrentRollingAverage = sum;
+                    mCurrentRollingAverage = fullScreenRed;
                 }
                 // Next 18 averages needs to incorporate the sum with the correct N multiplier
                 // in rolling average.
                 else if (numCaptures > setHeartDetectTime && numCaptures < 59) {
-                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + sum) / (numCaptures - (setHeartDetectTime - 1));
+                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + fullScreenRed) / (numCaptures - (setHeartDetectTime - 1));
                 }
 
                 // From 49 on, the rolling average incorporates the last 30 rolling averages.
                 else if (numCaptures >= 59) {
-                    mCurrentRollingAverage = (mCurrentRollingAverage * 29 + sum) / 30;
+                    mCurrentRollingAverage = (mCurrentRollingAverage * 29 + fullScreenRed) / 30;
                     if (mLastRollingAverage > mCurrentRollingAverage && mLastRollingAverage > mLastLastRollingAverage && mNumBeats < captureRate) {
                         mTimeArray[mNumBeats] = System.currentTimeMillis();
                         mNumBeats++;
-
-                        if (mNumBeats > prevNumBeats) {
-                            new HandlerThread("CountDownThread"){
-                                protected void onLooperPrepared(){
-                                    countDownTimer = new CountDownTimer(1000L * 30,1000L) {
-                                        @Override
-                                        public void onTick(long l) {
-
-                                        }
-
-                                        @Override
-                                        public void onFinish() {
-                                            calcBPM();
-                                            mNumBeats = captureRate;
-                                        }
-                                    };
-                                    countDownTimer.start();
-                                }
-                            }.start();
-                            waveUtil.showWaveData(waveShowView, exampleWave);
-                        }
-                        prevNumBeats = mNumBeats;
+                        waveUtil.showWaveData(waveShowView, exampleWave);
                         heartBeatCount.setText("檢測到的心跳次數：" + mNumBeats);
                         if (mNumBeats == captureRate) {
                             cancelCountDownTimer();
@@ -232,6 +232,7 @@ public class CameraActivity extends AppCompatActivity {
             countDownTimer.cancel();
         }
     }
+
 
     private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
         @Override
@@ -277,16 +278,21 @@ public class CameraActivity extends AppCompatActivity {
         for (int i = 5; i < time_dist.length - 1; i++) {
             time_dist[i] = mTimeArray[i + 1] - mTimeArray[i];
             scv_text.append("RRi：" + time_dist[i] + "\n");
-            Log.d("llll", "calcBPM: " + time_dist[i]);
+//            Log.d("llll", "calcBPM: " + time_dist[i]);
         }
-        long[] preRRI = filterAndIQR.IQR(time_dist);
+//        jsonUpload.jsonUploadToServer(time_dist);
+        long[] preprocessRRI = filterAndIQR.IQR(time_dist);
+        Log.d("why0", "calcBPM: "+ Arrays.toString(preprocessRRI));
+        jsonUpload.jsonUploadToServer(preprocessRRI);
+
+        double rmssd = filterAndIQR.calculateRMSSD(preprocessRRI);
+        double sdnn = filterAndIQR.calculateSDNN(preprocessRRI);
 
         DecimalFormat df = new DecimalFormat("#.##");
-        String RMSSD = df.format(calculateRMSSD(preRRI));
-        String SDNN = df.format(calculateSDNN(preRRI));
+        String RMSSD = df.format(rmssd);
+        String SDNN = df.format(sdnn);
 
         Arrays.sort(time_dist);
-
         med = (int) time_dist[time_dist.length / 2];
         heart_rate_bpm = 60000 / med;
         heartBeatCount.setText("RMSSD：" + RMSSD + "\n" + "SDNN：" + SDNN + "\n" + "BPM：" + heart_rate_bpm);
@@ -406,78 +412,20 @@ public class CameraActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    // 計算SDNN
-    public double calculateSDNN(long[] rrIntervals) {
-        double mean = calculateMean(rrIntervals);
-        double sumOfSquares = 0.0;
-        for (int i = 0; i < rrIntervals.length; i++) {
-            sumOfSquares += Math.pow(rrIntervals[i] - mean, 2);
-        }
-        double variance = sumOfSquares / (rrIntervals.length - 1);
-        double sdnn = Math.sqrt(variance);
-        return sdnn / 1000;
-    }
-
-    // 計算平均值
-    public double calculateMean(long[] values) {
-        double sum = 0.0;
-        for (int i = 0; i < values.length; i++) {
-            sum += (double) values[i];
-        }
-        double mean = sum / values.length;
-        return mean;
-    }
-
-    // 計算RMSSD
-    public double calculateRMSSD(long[] rrIntervals) {
-        int n = rrIntervals.length;
-        long[] rrIntervalsNoTail = Arrays.copyOfRange(rrIntervals, 0, n - 1);
-
-        double sumOfDifferencesSquared = 0.0;
-        for (int i = 1; i < rrIntervalsNoTail.length; i++) {
-            double difference = rrIntervalsNoTail[i] - rrIntervalsNoTail[i - 1];
-            Log.d("kkkk", "calculateRMSSD: " + difference);
-            sumOfDifferencesSquared += difference * difference;
-        }
-
-        double rmssd = sumOfDifferencesSquared / (rrIntervals.length - 1);
-        return Math.sqrt(rmssd);
-    }
-
     public static class WaveUtil {
         private Timer timer;
         private TimerTask timerTask;
-        private final List<Float> mWaveDataList = new ArrayList<>();
-
         public void showWaveData(final WaveShowView waveShowView, List<Float> pulseDataList) {
-            final float normalData = 50f;
-            mWaveDataList.addAll(pulseDataList);
             timer = new Timer();
             timerTask = new TimerTask() {
                 @Override
                 public void run() {
-                    float data;
-                    if (!mWaveDataList.isEmpty()) {
-                        data = mWaveDataList.get(0);
-                        mWaveDataList.remove(0);
-                    } else {
-                        data = normalData;
-                    }
-                    try {
-                        Thread.sleep(500);
-                        waveShowView.showLine(data);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+//                    waveShowView.showLine(50f);
                 }
             };
             //500表示調用schedule方法後等待500ms後調用run方法，50表示以後調用run方法的時間間隔
             timer.schedule(timerTask, 50, 300);
         }
-
-        /**
-         * 停止绘制波形
-         */
         public void stop() {
             if (timer != null) {
                 timer.cancel();

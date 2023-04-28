@@ -5,7 +5,7 @@ android {
     defaultConfig {
         applicationId "app.payload.cambit"
         minSdkVersion 22
-        targetSdkVersion 29
+        targetSdkVersion 27
         versionCode 1
         versionName "1.0"
     }
@@ -30,4 +30,6 @@ dependencies {
     implementation 'com.google.android.material:material:1.2.1'
     //MPAndroidChart
     implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
+    //okHttp
+    implementation 'com.squareup.okhttp3:okhttp:4.5.0'
 }

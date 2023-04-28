@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Purpulse</string>
+    <string name="app_name">Purpulse_PPG</string>
     <string name="warn">把手指靠近相機鏡頭，調整直到閃爍，然後保持靜止。</string>
     <string name="about">關於</string>
     <string name="your_approximate_heart_rate_is">您的大致心率是：</string>
