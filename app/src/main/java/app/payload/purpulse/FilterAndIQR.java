@@ -3,6 +3,7 @@ package app.payload.purpulse;
 import android.os.Build;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 public class FilterAndIQR {
@@ -20,8 +21,8 @@ public class FilterAndIQR {
             double iqr = q3 - q1;
 
             // 計算上下界
-            double upperBound = q3 + 1.2 * iqr;
-            double lowerBound = q1 - 1.2 * iqr;
+            double upperBound = q3 + 1.25 * iqr;
+            double lowerBound = q1 - 1.25 * iqr;
 
             // 將超過上下界的值設為0
             for (int i = 0; i < RRI.length; i++) {
@@ -29,16 +30,16 @@ public class FilterAndIQR {
                     RRI[i] = 0;
                 }
             }
-
+            ArrayList<Long> clearArrayList = new ArrayList<>();
             // 找出所有不為0的值的平均數
-            int count = 0;
-            nonZeroValues = new long[RRI.length];
             for (int i = 0; i < RRI.length; i++) {
                 if (RRI[i] != 0) {
-                    nonZeroValues[count] = RRI[i];
-                    Log.d("nonZERO", " : "+nonZeroValues[count]);
-                    count++;
+                    clearArrayList.add(RRI[i]);
                 }
+            }
+            nonZeroValues = new long[clearArrayList.size()];
+            for (int i = 0; i < clearArrayList.size(); i++) {
+                nonZeroValues[i] = clearArrayList.get(i);
             }
         }
         return nonZeroValues;

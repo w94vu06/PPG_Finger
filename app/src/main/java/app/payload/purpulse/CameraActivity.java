@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -19,7 +20,7 @@ import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Message;
+import android.os.PowerManager;
 import android.util.Log;
 import android.util.Size;
 import android.view.Menu;
@@ -36,28 +37,20 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 
-import java.io.File;
-import java.io.IOException;
 import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
-import java.util.Timer;
-import java.util.TimerTask;
-
-import okhttp3.MediaType;
-import okhttp3.MultipartBody;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 
 
 public class CameraActivity extends AppCompatActivity {
@@ -90,15 +83,20 @@ public class CameraActivity extends AppCompatActivity {
     private TextView scv_text;
     private TextView time_countDown;
     private Button btn_restart;
-    //chartDraw
-    private WaveUtil waveUtil;
-    private WaveShowView waveShowView;
+    //chart
+    private boolean isRunning = false;
+    private LineChart chart;
+    private Thread thread;
+
     //IQR
     private FilterAndIQR filterAndIQR;
     private JsonUpload jsonUpload;
     //Wave
     List<Float> exampleWave = Arrays.asList(50f, 40f, 25f, 10f, 90f, 75f, 60f, 50f);
     private CountDownTimer countDownTimer;
+    //keepScreenOpen
+    private PowerManager powerManager;
+    private PowerManager.WakeLock wakeLock;
 
     @SuppressLint("MissingInflatedId")
     @Override
@@ -114,13 +112,13 @@ public class CameraActivity extends AppCompatActivity {
         scv_text = findViewById(R.id.scv_text);
         time_countDown = findViewById(R.id.time_countDown);
         CameraView.setSurfaceTextureListener(textureListener);
-
-        waveShowView = findViewById(R.id.waveView);
-        waveUtil = new WaveUtil();
         filterAndIQR = new FilterAndIQR();
         jsonUpload = new JsonUpload();
+
+        chart = findViewById(R.id.lineChart);
+        initChart();
+
         initBarAndRestartBtn();
-        waveShowView.resetCanavas();
 
     }
 
@@ -129,6 +127,7 @@ public class CameraActivity extends AppCompatActivity {
         mNumBeats = 0;
         prevNumBeats = 0;
     }
+
 
     public void initBarAndRestartBtn() {
         //關閉標題列
@@ -144,7 +143,8 @@ public class CameraActivity extends AppCompatActivity {
                 closeCamera();
                 onResume();
                 initValue();
-                waveShowView.resetCanavas();
+                chart.clear();
+                initChart();
             }
         });
     }
@@ -185,6 +185,7 @@ public class CameraActivity extends AppCompatActivity {
                 fullScreenRed += redFull;
                 redThreshold += red;
             }
+
             int averageThreshold = redThreshold / (height * width);//取閥值 0 1 2
 
             if (averageThreshold == 2) {
@@ -205,14 +206,16 @@ public class CameraActivity extends AppCompatActivity {
                     if (mLastRollingAverage > mCurrentRollingAverage && mLastRollingAverage > mLastLastRollingAverage && mNumBeats < captureRate) {
                         mTimeArray[mNumBeats] = System.currentTimeMillis();
                         mNumBeats++;
-                        waveUtil.showWaveData(waveShowView, exampleWave);
+                        if (mNumBeats > prevNumBeats) {
+                            triggerHandler();
+                        }
+                        prevNumBeats = mNumBeats;
+                        startChartRun();
                         heartBeatCount.setText("檢測到的心跳次數：" + mNumBeats);
                         if (mNumBeats == captureRate) {
-                            cancelCountDownTimer();
-                            calcBPM();
+                            isRunning = false;
+                            calcBPM_RMMSD_SDNN();
                             closeCamera();
-                            waveUtil.stop();
-                            waveShowView.resetCanavas();
                         }
                     }
                 }
@@ -227,11 +230,6 @@ public class CameraActivity extends AppCompatActivity {
         }
     };
 
-    public void cancelCountDownTimer() {
-        if (countDownTimer != null) {
-            countDownTimer.cancel();
-        }
-    }
 
 
     private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
@@ -271,35 +269,33 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    private void calcBPM() {
+    private void calcBPM_RMMSD_SDNN() {
         int med;
         long[] time_dist = new long[captureRate];
-
+        //calcRRI
         for (int i = 5; i < time_dist.length - 1; i++) {
             time_dist[i] = mTimeArray[i + 1] - mTimeArray[i];
             scv_text.append("RRi：" + time_dist[i] + "\n");
-//            Log.d("llll", "calcBPM: " + time_dist[i]);
         }
-//        jsonUpload.jsonUploadToServer(time_dist);
-        long[] preprocessRRI = filterAndIQR.IQR(time_dist);
+        long[] preprocessRRI = filterAndIQR.IQR(time_dist);//去掉離群值
         Log.d("why0", "calcBPM: "+ Arrays.toString(preprocessRRI));
-        jsonUpload.jsonUploadToServer(preprocessRRI);
 
+        jsonUpload.jsonUploadToServer(preprocessRRI);//上傳完成的RRI
         double rmssd = filterAndIQR.calculateRMSSD(preprocessRRI);
         double sdnn = filterAndIQR.calculateSDNN(preprocessRRI);
-
-        DecimalFormat df = new DecimalFormat("#.##");
+        DecimalFormat df = new DecimalFormat("#.##");//設定輸出格式
         String RMSSD = df.format(rmssd);
         String SDNN = df.format(sdnn);
 
-        Arrays.sort(time_dist);
-        med = (int) time_dist[time_dist.length / 2];
+        Arrays.sort(preprocessRRI);
+        med = (int) preprocessRRI[preprocessRRI.length / 2];
         heart_rate_bpm = 60000 / med;
         heartBeatCount.setText("RMSSD：" + RMSSD + "\n" + "SDNN：" + SDNN + "\n" + "BPM：" + heart_rate_bpm);
-        BottomSheetDialog dialog = new BottomSheetDialog().passData(heart_rate_bpm);
+//        BottomSheetDialog dialog = new BottomSheetDialog().passData(heart_rate_bpm);
 //        dialog.show(getSupportFragmentManager(), "tag?");
         onPause();
     }
+
 
     protected void createCameraPreview() {
         try {
@@ -412,33 +408,121 @@ public class CameraActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    public static class WaveUtil {
-        private Timer timer;
-        private TimerTask timerTask;
-        public void showWaveData(final WaveShowView waveShowView, List<Float> pulseDataList) {
-            timer = new Timer();
-            timerTask = new TimerTask() {
-                @Override
-                public void run() {
-//                    waveShowView.showLine(50f);
+    /**開始跑圖表*/
+    private void startChartRun() {
+        if (isRunning) return;
+        if (thread != null) thread.interrupt();
+
+        //簡略寫法
+        isRunning = true;
+        Runnable runnable = () -> {
+            addData(50);
+        };
+
+        //簡略寫法
+        thread = new Thread(() -> {
+            while (isRunning) {
+                runOnUiThread(runnable);
+                if (!isRunning) break;
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
-            };
-            //500表示調用schedule方法後等待500ms後調用run方法，50表示以後調用run方法的時間間隔
-            timer.schedule(timerTask, 50, 300);
-        }
-        public void stop() {
-            if (timer != null) {
-                timer.cancel();
-                timer.purge();
-                timer = null;
             }
-            if (null != timerTask) {
-                timerTask.cancel();
-                timerTask = null;
-            }
-//            mWaveDataList.clear();
-        }
+        });
+        thread.start();
     }
+    /**
+     * 觸發心跳
+     * */
+    public void triggerHandler() {
+        float inputData = 70;
+        addData(inputData);
+    }
+
+    private void initChart(){
+        chart.getDescription().setEnabled(false);//設置不要圖表標籤
+        chart.setBackgroundColor(Color.parseColor("#fdf3f1"));
+        chart.setTouchEnabled(false);//設置不可觸碰
+        chart.setDragEnabled(false);//設置不可互動
+        chart.setDrawBorders(true);  // 啟用畫布的外框線
+        chart.setBorderWidth(0.5f);   // 設置外框線的寬度
+        chart.setBorderColor(Color.BLACK);  // 設置外框線的顏色
+        //設置單一線數據
+        LineData data = new LineData();
+        data.setValueTextColor(Color.BLACK);
+        chart.setData(data);
+        //設置左下角標籤
+        Legend l =  chart.getLegend();
+        l.setForm(Legend.LegendForm.LINE);
+        l.setTextColor(Color.BLACK);
+
+        //設置Ｘ軸
+        XAxis x =  chart.getXAxis();
+        x.setTextColor(Color.BLACK);
+        x.setDrawLabels(false);//去掉X軸標籤
+        x.setDrawGridLines(true);//畫X軸線
+        x.setGridColor(Color.GRAY);
+        x.setGranularity(0.5f);
+
+
+//        x.setPosition(XAxis.XAxisPosition.BOTTOM);//把標籤放底部
+//        x.setLabelCount(0,false);//設置顯示5個標籤
+        //設置X軸標籤內容物
+//        x.setValueFormatter(new ValueFormatter() {
+//            @Override
+//            public String getFormattedValue(float value) {
+//                return "No. "+Math.round(value);
+//            }
+//        });
+        //
+        YAxis y = chart.getAxisLeft();
+        y.setTextColor(Color.BLACK);
+        y.setDrawLabels(false);//去掉Y軸標籤
+        y.setDrawGridLines(true);//畫Y軸線
+        y.setGridColor(Color.GRAY);
+        y.setGranularity(0.2f);
+
+        y.setAxisMaximum(100);//最高100
+        y.setAxisMinimum(0);//最低0
+
+        chart.getAxisRight().setEnabled(false);//右邊Y軸不可視
+//        chart.setVisibleXRange(0,60);//設置顯示範圍
+    }
+    /**新增資料*/
+    private void addData(float inputData){
+        LineData data =  chart.getData();//取得原數據
+        ILineDataSet set = data.getDataSetByIndex(0);//取得曲線(因為只有一條，故為0，若有多條則需指定)
+        if (set == null){
+            set = createSet();
+            data.addDataSet(set);//如果是第一次跑則需要載入數據
+        }
+        data.addEntry(new Entry(set.getEntryCount(),inputData),0);//新增數據點
+        //
+        data.notifyDataChanged();
+        data.setDrawValues(false);//是否繪製線條上的文字
+        chart.notifyDataSetChanged();
+        chart.setVisibleXRange(0,60);//設置可見範圍
+        chart.moveViewToX(data.getEntryCount());//將可視焦點放在最新一個數據，使圖表可移動
+    }
+    /**設置數據線的樣式*/
+    private LineDataSet createSet() {
+        LineDataSet set = new LineDataSet(null, "");
+        set.setAxisDependency(YAxis.AxisDependency.LEFT);
+        set.setColor(Color.parseColor("#7d7d7d"));
+        set.setLineWidth(2);
+        set.setDrawCircles(false);
+        set.setDrawFilled(false);
+//        set.setFillColor(Color.RED);
+//        set.setFillAlpha(50);
+        set.setValueTextColor(Color.BLACK);
+        set.setDrawValues(false);
+        return set;
+    }
+
+
+
 
 
 
