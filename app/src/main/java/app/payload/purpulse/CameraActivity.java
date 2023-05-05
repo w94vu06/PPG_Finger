@@ -17,17 +17,15 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Bundle;
-import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.PowerManager;
 import android.util.Log;
 import android.util.Size;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.Surface;
 import android.view.TextureView;
-import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,10 +45,8 @@ import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 
 import java.text.DecimalFormat;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 
 
 public class CameraActivity extends AppCompatActivity {
@@ -81,22 +77,18 @@ public class CameraActivity extends AppCompatActivity {
 
     private TextView heartBeatCount;
     private TextView scv_text;
-    private TextView time_countDown;
+    private TextView time_startCountDown;//countDown 5 sec
     private Button btn_restart;
     //chart
     private boolean isRunning = false;
     private LineChart chart;
-    private Thread thread;
-
+    private Thread chartThread;
     //IQR
     private FilterAndIQR filterAndIQR;
     private JsonUpload jsonUpload;
-    //Wave
-    List<Float> exampleWave = Arrays.asList(50f, 40f, 25f, 10f, 90f, 75f, 60f, 50f);
-    private CountDownTimer countDownTimer;
-    //keepScreenOpen
-    private PowerManager powerManager;
-    private PowerManager.WakeLock wakeLock;
+    //stopDetect
+    private long lastBeatTime = 0;
+//    boolean startCheckIsIdle = true;
 
     @SuppressLint("MissingInflatedId")
     @Override
@@ -104,13 +96,12 @@ public class CameraActivity extends AppCompatActivity {
         setTheme(R.style.AppTheme);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera);
-
         mTimeArray = new long[captureRate];
         CameraView = findViewById(R.id.texture);
         btn_restart = findViewById(R.id.btn_restart);
         heartBeatCount = findViewById(R.id.heartBeatCount);
         scv_text = findViewById(R.id.scv_text);
-        time_countDown = findViewById(R.id.time_countDown);
+        time_startCountDown = findViewById(R.id.time_countDown);
         CameraView.setSurfaceTextureListener(textureListener);
         filterAndIQR = new FilterAndIQR();
         jsonUpload = new JsonUpload();
@@ -118,42 +109,46 @@ public class CameraActivity extends AppCompatActivity {
         chart = findViewById(R.id.lineChart);
         initChart();
 
-        initBarAndRestartBtn();
-
-    }
-
-    public void initValue() {
-        numCaptures = 0;
-        mNumBeats = 0;
-        prevNumBeats = 0;
+        closeTopBar();
+        restartBtn();
     }
 
 
-    public void initBarAndRestartBtn() {
+
+    public void closeTopBar() {
         //關閉標題列
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             actionBar.hide();
         }
-
-        btn_restart.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                heartBeatCount.setText("量測準備中...");
-                closeCamera();
-                onResume();
-                initValue();
-                chart.clear();
-                initChart();
-            }
-        });
     }
 
-
+    /**
+     * 重新量測按鈕
+     * */
+    public void restartBtn() {
+        btn_restart.setOnClickListener(v -> {
+            heartBeatCount.setText("量測準備中...");
+            closeCamera();
+            chart.clear();//畫布清除
+            initValue();
+            initChart();//確保畫布初始化
+            onResume();
+        });
+    }
+    public void initValue() {
+        numCaptures = 0;
+        prevNumBeats = 0;
+        mNumBeats = 0;
+    }
+    /**
+     * 設定抓到的畫面
+     * */
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
             openCamera();
+            setScreenOn();
         }
 
         @Override
@@ -172,7 +167,6 @@ public class CameraActivity extends AppCompatActivity {
             int height = bmp.getHeight();
             int[] pixels = new int[height * width];
             int[] pixelsFullScreen = new int[height * width];
-
             bmp.getPixels(pixelsFullScreen, 0, width, 0, 0, width, height);//get full screen and main to detect
             bmp.getPixels(pixels, 0, width, width / 2, height / 2, width / 10, height / 10);//get small screen
 
@@ -185,11 +179,10 @@ public class CameraActivity extends AppCompatActivity {
                 fullScreenRed += redFull;
                 redThreshold += red;
             }
-
             int averageThreshold = redThreshold / (height * width);//取閥值 0 1 2
 
-            if (averageThreshold == 2) {
 
+            if (averageThreshold == 2) {
                 // Waits 20 captures, to remove startup artifacts.  First average is the sum.
                 if (numCaptures == setHeartDetectTime) {
                     mCurrentRollingAverage = fullScreenRed;
@@ -210,12 +203,13 @@ public class CameraActivity extends AppCompatActivity {
                             triggerHandler();
                         }
                         prevNumBeats = mNumBeats;
-                        startChartRun();
+                        startChartRun();//開始跑圖表
                         heartBeatCount.setText("檢測到的心跳次數：" + mNumBeats);
                         if (mNumBeats == captureRate) {
                             isRunning = false;
                             calcBPM_RMMSD_SDNN();
                             closeCamera();
+                            setScreenOff();
                         }
                     }
                 }
@@ -230,6 +224,19 @@ public class CameraActivity extends AppCompatActivity {
         }
     };
 
+    /**
+     * 閒置太久強制中止
+     * */
+    public void setForceStop() throws InterruptedException {
+        lastBeatTime = System.currentTimeMillis();
+        while (true) {
+            long beatLast = System.currentTimeMillis() - lastBeatTime;
+            Log.d("kkkk", "setForceStop: " + beatLast);
+            if (beatLast > 15000) {
+                heartBeatCount.setText("量測失敗請重新量測");
+            }
+        }
+    }
 
 
     private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
@@ -256,6 +263,7 @@ public class CameraActivity extends AppCompatActivity {
         mBackgroundThread = new HandlerThread("Camera Background");
         mBackgroundThread.start();
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
+
     }
 
     protected void stopBackgroundThread() {
@@ -278,7 +286,7 @@ public class CameraActivity extends AppCompatActivity {
             scv_text.append("RRi：" + time_dist[i] + "\n");
         }
         long[] preprocessRRI = filterAndIQR.IQR(time_dist);//去掉離群值
-        Log.d("why0", "calcBPM: "+ Arrays.toString(preprocessRRI));
+        Log.d("why0", "calcBPM: " + Arrays.toString(preprocessRRI));
 
         jsonUpload.jsonUploadToServer(preprocessRRI);//上傳完成的RRI
         double rmssd = filterAndIQR.calculateRMSSD(preprocessRRI);
@@ -295,7 +303,6 @@ public class CameraActivity extends AppCompatActivity {
 //        dialog.show(getSupportFragmentManager(), "tag?");
         onPause();
     }
-
 
     protected void createCameraPreview() {
         try {
@@ -367,6 +374,17 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * keep screen open
+     */
+    public void setScreenOn() {
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    public void setScreenOff() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
     //check Permission
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -392,26 +410,17 @@ public class CameraActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         closeCamera();
+        setScreenOff();
         stopBackgroundThread();
         super.onPause();
     }
 
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.menu_main, menu);
-        return super.onCreateOptionsMenu(menu);
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        startActivity(new Intent(this, AboutActivity.class));
-        return super.onOptionsItemSelected(item);
-    }
-
-    /**開始跑圖表*/
+    /**
+     * 開始跑圖表
+     */
     private void startChartRun() {
         if (isRunning) return;
-        if (thread != null) thread.interrupt();
+        if (chartThread != null) chartThread.interrupt();
 
         //簡略寫法
         isRunning = true;
@@ -420,7 +429,7 @@ public class CameraActivity extends AppCompatActivity {
         };
 
         //簡略寫法
-        thread = new Thread(() -> {
+        chartThread = new Thread(() -> {
             while (isRunning) {
                 runOnUiThread(runnable);
                 if (!isRunning) break;
@@ -431,17 +440,21 @@ public class CameraActivity extends AppCompatActivity {
                 }
             }
         });
-        thread.start();
+        chartThread.start();
     }
+
     /**
      * 觸發心跳
-     * */
+     */
     public void triggerHandler() {
         float inputData = 70;
         addData(inputData);
     }
 
-    private void initChart(){
+    /**
+     * 設定圖表格式
+     */
+    private void initChart() {
         chart.getDescription().setEnabled(false);//設置不要圖表標籤
         chart.setBackgroundColor(Color.parseColor("#fdf3f1"));
         chart.setTouchEnabled(false);//設置不可觸碰
@@ -454,29 +467,18 @@ public class CameraActivity extends AppCompatActivity {
         data.setValueTextColor(Color.BLACK);
         chart.setData(data);
         //設置左下角標籤
-        Legend l =  chart.getLegend();
+        Legend l = chart.getLegend();
         l.setForm(Legend.LegendForm.LINE);
         l.setTextColor(Color.BLACK);
 
         //設置Ｘ軸
-        XAxis x =  chart.getXAxis();
+        XAxis x = chart.getXAxis();
         x.setTextColor(Color.BLACK);
         x.setDrawLabels(false);//去掉X軸標籤
         x.setDrawGridLines(true);//畫X軸線
         x.setGridColor(Color.GRAY);
         x.setGranularity(0.5f);
 
-
-//        x.setPosition(XAxis.XAxisPosition.BOTTOM);//把標籤放底部
-//        x.setLabelCount(0,false);//設置顯示5個標籤
-        //設置X軸標籤內容物
-//        x.setValueFormatter(new ValueFormatter() {
-//            @Override
-//            public String getFormattedValue(float value) {
-//                return "No. "+Math.round(value);
-//            }
-//        });
-        //
         YAxis y = chart.getAxisLeft();
         y.setTextColor(Color.BLACK);
         y.setDrawLabels(false);//去掉Y軸標籤
@@ -490,23 +492,29 @@ public class CameraActivity extends AppCompatActivity {
         chart.getAxisRight().setEnabled(false);//右邊Y軸不可視
 //        chart.setVisibleXRange(0,60);//設置顯示範圍
     }
-    /**新增資料*/
-    private void addData(float inputData){
-        LineData data =  chart.getData();//取得原數據
+
+    /**
+     * 新增資料
+     */
+    private void addData(float inputData) {
+        LineData data = chart.getData();//取得原數據
         ILineDataSet set = data.getDataSetByIndex(0);//取得曲線(因為只有一條，故為0，若有多條則需指定)
-        if (set == null){
+        if (set == null) {
             set = createSet();
             data.addDataSet(set);//如果是第一次跑則需要載入數據
         }
-        data.addEntry(new Entry(set.getEntryCount(),inputData),0);//新增數據點
+        data.addEntry(new Entry(set.getEntryCount(), inputData), 0);//新增數據點
         //
         data.notifyDataChanged();
         data.setDrawValues(false);//是否繪製線條上的文字
         chart.notifyDataSetChanged();
-        chart.setVisibleXRange(0,60);//設置可見範圍
+        chart.setVisibleXRange(0, 60);//設置可見範圍
         chart.moveViewToX(data.getEntryCount());//將可視焦點放在最新一個數據，使圖表可移動
     }
-    /**設置數據線的樣式*/
+
+    /**
+     * 設置數據線的樣式
+     */
     private LineDataSet createSet() {
         LineDataSet set = new LineDataSet(null, "");
         set.setAxisDependency(YAxis.AxisDependency.LEFT);
@@ -521,13 +529,17 @@ public class CameraActivity extends AppCompatActivity {
         return set;
     }
 
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_main, menu);
+        return super.onCreateOptionsMenu(menu);
+    }
 
-
-
-
-
-
-
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        startActivity(new Intent(this, AboutActivity.class));
+        return super.onOptionsItemSelected(item);
+    }
 }
 
 

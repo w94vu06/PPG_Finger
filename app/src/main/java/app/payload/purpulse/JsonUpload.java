@@ -2,6 +2,7 @@ package app.payload.purpulse;
 
 import android.net.wifi.aware.DiscoverySession;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 
@@ -44,8 +45,8 @@ public class JsonUpload {
     //    private static final MediaType MEDIA_TYPE_JSON = MediaType.parse("application/json");
     private static final OkHttpClient client = new OkHttpClient();
     private static String json;
-    Handler mHandler = new Handler();
-
+    Handler mHandler = new MHandler();
+    boolean uploadSuccess = true;
     public void jsonUploadToServer(long[] time_dist) {
 
         JSONArray jsonTimeDist = new JSONArray();
@@ -84,50 +85,28 @@ public class JsonUpload {
         }
         String jsonString = jsonData.toString();
 
-//        jsonString = jsonString.replace("[", "").replace("]", "");
-
-
-//        OkHttpClient.Builder builder = new OkHttpClient.Builder()
-//                .connectionSpecs(Collections.singletonList(ConnectionSpec.COMPATIBLE_TLS));
-//        List<ConnectionSpec> connectionSpecs = new ArrayList<>();
-//        ConnectionSpec spec = new ConnectionSpec.Builder(ConnectionSpec.COMPATIBLE_TLS)
-//                .tlsVersions(TlsVersion.TLS_1_2, TlsVersion.TLS_1_1, TlsVersion.TLS_1_0)
-//                .allEnabledCipherSuites()
-//                .build();
-//        connectionSpecs.add(spec);
-//
-//        ConnectionSpec spec1 = new ConnectionSpec.Builder(ConnectionSpec.CLEARTEXT).build();
-//        connectionSpecs.add(spec1);
-//        builder.connectionSpecs(connectionSpecs);
-//
-//        ConnectionSpec spec2 = new ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
-//                .tlsVersions(TlsVersion.TLS_1_2)
-//                .build();
-//        connectionSpecs.add(spec2);
-//
-//        OkHttpClient client = builder.build();
-
         new Thread() {
             @Override
             public void run() {
                 MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
                 RequestBody requestBody = RequestBody.create(mediaType, jsonString);
                 Request request = new Request.Builder()
-                        .url("http://192.168.2.11:8090")
-//                        .url("http://192.168.2.110:5000")
+                        .url("http://192.168.2.11:8090")//伺服器
+//                        .url("http://192.168.2.110:5000")//測試服
                         .post(requestBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    if (!response.isSuccessful())
+
+                    if (!response.isSuccessful()){
+                        uploadSuccess = false;
                         throw new IOException("Unexpected code " + response);
+                    }
                     Message msg = Message.obtain();
                     String res = Objects.requireNonNull(response.body()).string();
                     msg.obj = res;
-                    Log.d("sqq", "run: " + res);
-                    mHandler = new MHandler();
+                    Log.d("serverRes", "getServerRes: " + res);
                     mHandler.sendMessage(msg);
-
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -136,7 +115,7 @@ public class JsonUpload {
     }
 
    class MHandler extends Handler {
-        @Override
+       @Override
         public void handleMessage(@NonNull Message msg) {
             super.handleMessage(msg);
             json = msg.obj.toString();
@@ -209,6 +188,7 @@ public class JsonUpload {
                 waybs1_0 = jsonObject.getDouble("waybs1_0");
                 waybs1_1 = jsonObject.getDouble("waybs1_1");
                 year10scores = jsonObject.getDouble("year10scores");
+
             } catch (JSONException e) {
                 e.printStackTrace();
             }

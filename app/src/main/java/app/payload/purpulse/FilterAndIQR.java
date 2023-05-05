@@ -64,7 +64,7 @@ public class FilterAndIQR {
         }
         double variance = sumOfSquares / (rrIntervals.length - 1);
         sdnn = Math.sqrt(variance);
-        return sdnn / 1000;
+        return sdnn;
     }
 
     // 計算RMSSD
