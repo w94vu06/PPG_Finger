@@ -19,7 +19,8 @@
         <activity
             android:name="app.payload.purpulse.CameraActivity"
             android:exported="true"
-            android:theme="@style/splashScreenTheme">
+            android:theme="@style/splashScreenTheme"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

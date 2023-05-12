@@ -63,9 +63,13 @@ public class CameraActivity extends AppCompatActivity {
 
     //Heart rate detector member variables
     public static int heart_rate_bpm;
+    /**
+     * 總共要抓的心跳數
+     */
     private final int captureRate = 35;
     // detectTime
-    private final int setHeartDetectTime = 39;
+    private final int setHeartDetectTime = 40;
+    private final int rollAvgStandard = setHeartDetectTime + 29;
     private int mCurrentRollingAverage;
     private int mLastRollingAverage;
     private int mLastLastRollingAverage;
@@ -75,20 +79,20 @@ public class CameraActivity extends AppCompatActivity {
     private int mNumBeats = 0;
     private int prevNumBeats = 0;
 
+
     private TextView heartBeatCount;
     private TextView scv_text;
-    private TextView time_startCountDown;//countDown 5 sec
     private Button btn_restart;
     //chart
-    private boolean isRunning = false;
+    private boolean chartIsRunning = false;
     private LineChart chart;
     private Thread chartThread;
     //IQR
     private FilterAndIQR filterAndIQR;
     private JsonUpload jsonUpload;
-    //stopDetect
-    private long lastBeatTime = 0;
-//    boolean startCheckIsIdle = true;
+
+    long[] outlierRRI;
+    int fullAvgRed,fullAvgGreen,fullAvgBlue;
 
     @SuppressLint("MissingInflatedId")
     @Override
@@ -101,7 +105,7 @@ public class CameraActivity extends AppCompatActivity {
         btn_restart = findViewById(R.id.btn_restart);
         heartBeatCount = findViewById(R.id.heartBeatCount);
         scv_text = findViewById(R.id.scv_text);
-        time_startCountDown = findViewById(R.id.time_countDown);
+//        time_startCountDown = findViewById(R.id.time_countDown);
         CameraView.setSurfaceTextureListener(textureListener);
         filterAndIQR = new FilterAndIQR();
         jsonUpload = new JsonUpload();
@@ -111,12 +115,14 @@ public class CameraActivity extends AppCompatActivity {
 
         closeTopBar();
         restartBtn();
+
     }
 
 
-
+    /**
+     * //關閉標題列
+     */
     public void closeTopBar() {
-        //關閉標題列
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             actionBar.hide();
@@ -124,26 +130,35 @@ public class CameraActivity extends AppCompatActivity {
     }
 
     /**
-     * 重新量測按鈕
-     * */
-    public void restartBtn() {
-        btn_restart.setOnClickListener(v -> {
-            heartBeatCount.setText("量測準備中...");
-            closeCamera();
-            chart.clear();//畫布清除
-            initValue();
-            initChart();//確保畫布初始化
-            onResume();
-        });
-    }
+     * //初始化量測用數值
+     */
     public void initValue() {
         numCaptures = 0;
         prevNumBeats = 0;
         mNumBeats = 0;
     }
+
+    /**
+     * 重新量測-按鈕
+     */
+    public void restartBtn() {
+        btn_restart.setOnClickListener(v -> {
+            heartBeatCount.setText("量測準備中...");
+            shoutDownDetect();
+            onResume();
+        });
+    }
+
+    public void shoutDownDetect() {
+        closeCamera();
+        chart.clear();//畫布清除
+        initValue();//初始化量測用數值
+        initChart();//確保畫布初始化
+    }
+
     /**
      * 設定抓到的畫面
-     * */
+     */
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
@@ -165,36 +180,62 @@ public class CameraActivity extends AppCompatActivity {
             Bitmap bmp = CameraView.getBitmap();
             int width = bmp.getWidth();
             int height = bmp.getHeight();
+
             int[] pixels = new int[height * width];
             int[] pixelsFullScreen = new int[height * width];
             bmp.getPixels(pixelsFullScreen, 0, width, 0, 0, width, height);//get full screen and main to detect
             bmp.getPixels(pixels, 0, width, width / 2, height / 2, width / 10, height / 10);//get small screen
 
-            int fullScreenRed = 0; //main to detect Full screen
-            int redThreshold = 0;//red threshold
-
+            int redThreshold = 0;
+            int greenThreshold = 0;
+            int blueThreshold = 0;//小畫面的紅綠藍
+            int fullScreenRed = 0;
+            int fullScreenGreen = 0;
+            int fullScreenBlue = 0;//整個畫面的紅綠藍
             for (int i = 0; i < height * width; i++) {
+                //RED
                 int red = (pixels[i] >> 16) & 0xFF;
                 int redFull = (pixelsFullScreen[i] >> 16) & 0xFF;
                 fullScreenRed += redFull;
                 redThreshold += red;
+                //GREEN
+                int green = (pixels[i] >> 8) & 0xFF;
+                int greenFull = (pixelsFullScreen[i] >> 8) & 0xFF;
+                fullScreenGreen += greenFull;
+                greenThreshold += green;
+                //BLUE
+                int blue = pixels[i] & 0xFF;
+                int blueFull = pixelsFullScreen[i] & 0xFF;
+                fullScreenBlue += blueFull;
+                blueThreshold += blue;
             }
-            int averageThreshold = redThreshold / (height * width);//取閥值 0 1 2
+            //小畫面平均值
+            int averageRedThreshold = redThreshold / (height * width);
+            int averageGreenThreshold = greenThreshold / (height * width);
+            int averageBlueThreshold = blueThreshold / (height * width);
+            //整個畫面平均值
+            fullAvgRed = fullScreenRed / (height * width);
+            fullAvgGreen = fullScreenGreen / (height * width);
+            fullAvgBlue = fullScreenBlue / (height * width);
+//            Log.d("yyyy", "RED: " + averageRedThreshold + "\nGREEN: " + averageGreenThreshold + "\nBLUE: " + averageBlueThreshold);
+            //如果色素閥值是正確的才進行量測
+            if (averageRedThreshold == 2) {
+                idleHandler.removeCallbacks(idleRunnable);
 
-
-            if (averageThreshold == 2) {
                 // Waits 20 captures, to remove startup artifacts.  First average is the sum.
+                //等待前幾個取樣，以去除啟動過程中的初始偏差
                 if (numCaptures == setHeartDetectTime) {
                     mCurrentRollingAverage = fullScreenRed;
                 }
                 // Next 18 averages needs to incorporate the sum with the correct N multiplier
                 // in rolling average.
-                else if (numCaptures > setHeartDetectTime && numCaptures < 59) {
+                //在接下來18個取樣之間，程式會使用前面的取樣和當前取樣的加權平均值來計算移動平均值
+                else if (numCaptures > setHeartDetectTime && numCaptures < rollAvgStandard) {
                     mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + fullScreenRed) / (numCaptures - (setHeartDetectTime - 1));
                 }
 
                 // From 49 on, the rolling average incorporates the last 30 rolling averages.
-                else if (numCaptures >= 59) {
+                else if (numCaptures >= rollAvgStandard) {
                     mCurrentRollingAverage = (mCurrentRollingAverage * 29 + fullScreenRed) / 30;
                     if (mLastRollingAverage > mCurrentRollingAverage && mLastRollingAverage > mLastLastRollingAverage && mNumBeats < captureRate) {
                         mTimeArray[mNumBeats] = System.currentTimeMillis();
@@ -202,14 +243,17 @@ public class CameraActivity extends AppCompatActivity {
                         if (mNumBeats > prevNumBeats) {
                             triggerHandler();
                         }
+
                         prevNumBeats = mNumBeats;
                         startChartRun();//開始跑圖表
                         heartBeatCount.setText("檢測到的心跳次數：" + mNumBeats);
                         if (mNumBeats == captureRate) {
-                            isRunning = false;
-                            calcBPM_RMMSD_SDNN();
+                            chartIsRunning = false;
                             closeCamera();
                             setScreenOff();
+                            calcBPM_RMMSD_SDNN();
+                            showInfoOnScrollView();
+                            uploadResult();
                         }
                     }
                 }
@@ -218,27 +262,52 @@ public class CameraActivity extends AppCompatActivity {
                 // Save previous two values
                 mLastLastRollingAverage = mLastRollingAverage;
                 mLastRollingAverage = mCurrentRollingAverage;
+            } else if (averageBlueThreshold != 0 && averageGreenThreshold != 0) {
+                idleHandler.postDelayed(idleRunnable, 15000);
+                qualityHandler.postDelayed(qualityRunnable, 5000);
             } else {
-                heartBeatCount.setText("請把手指貼緊鏡頭");
+//                qualityHandler.postDelayed(qualityRunnable, 5000);
             }
         }
     };
 
     /**
      * 閒置太久強制中止
-     * */
-    public void setForceStop() throws InterruptedException {
-        lastBeatTime = System.currentTimeMillis();
-        while (true) {
-            long beatLast = System.currentTimeMillis() - lastBeatTime;
-            Log.d("kkkk", "setForceStop: " + beatLast);
-            if (beatLast > 15000) {
-                heartBeatCount.setText("量測失敗請重新量測");
-            }
+     */
+    private Handler idleHandler = new Handler();
+    private Runnable idleRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // 在此暫時關閉某些功能
+            disableSomeFunction();
+            chartIsRunning = false;//關閉畫圖
+            heartBeatCount.setText("訊號過差，量測失敗");
         }
+    };
+
+    /**
+     * 關閉功能
+     */
+    private void disableSomeFunction() {
+        // 關閉功能，停止影像
+        shoutDownDetect();
     }
 
+    /**
+     * 量測提醒
+     */
+    private Handler qualityHandler = new Handler();
+    private Runnable qualityRunnable = new Runnable() {
+        @Override
+        public void run() {
+            heartBeatCount.setText("把手指靠近相機鏡頭，調整直到畫面充滿紅色，然後保持靜止。");
+        }
+    };
 
+
+    /**
+     * 開啟相機服務
+     */
     private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
         @Override
         public void onOpened(CameraDevice camera) {
@@ -283,25 +352,48 @@ public class CameraActivity extends AppCompatActivity {
         //calcRRI
         for (int i = 5; i < time_dist.length - 1; i++) {
             time_dist[i] = mTimeArray[i + 1] - mTimeArray[i];
-            scv_text.append("RRi：" + time_dist[i] + "\n");
         }
-        long[] preprocessRRI = filterAndIQR.IQR(time_dist);//去掉離群值
-        Log.d("why0", "calcBPM: " + Arrays.toString(preprocessRRI));
+        outlierRRI = filterAndIQR.IQR(time_dist);//去掉離群值
 
-        jsonUpload.jsonUploadToServer(preprocessRRI);//上傳完成的RRI
-        double rmssd = filterAndIQR.calculateRMSSD(preprocessRRI);
-        double sdnn = filterAndIQR.calculateSDNN(preprocessRRI);
+        //calcBPM
+        long[] getBPMOutlier = outlierRRI;
+        Arrays.sort(getBPMOutlier);
+        med = (int) outlierRRI[outlierRRI.length / 2];
+        heart_rate_bpm = 60000 / med;
+
+        //calcRMSSD_SDNN
+        double rmssd = filterAndIQR.calculateRMSSD(outlierRRI);
+        double sdnn = filterAndIQR.calculateSDNN(outlierRRI);
         DecimalFormat df = new DecimalFormat("#.##");//設定輸出格式
         String RMSSD = df.format(rmssd);
         String SDNN = df.format(sdnn);
 
-        Arrays.sort(preprocessRRI);
-        med = (int) preprocessRRI[preprocessRRI.length / 2];
-        heart_rate_bpm = 60000 / med;
         heartBeatCount.setText("RMSSD：" + RMSSD + "\n" + "SDNN：" + SDNN + "\n" + "BPM：" + heart_rate_bpm);
+        onPause();
+    }
+
+    /**
+     * 顯示結果在ScrollView
+     */
+    private void showInfoOnScrollView() {
+        for (int i = 0; i < outlierRRI.length; i++) {
+            scv_text.append("RRi：" + outlierRRI[i] + " / " + "紅色色素：" + fullAvgRed + "\n");
+        }
+    }
+
+    /**
+     * 上傳量測結果至伺服器
+     */
+    private void uploadResult() {
+        jsonUpload.jsonUploadToServer(outlierRRI);//上傳完成的RRI
+    }
+
+    /**
+     * 顯示從伺服器拉回來的資料
+     */
+    private void showJsonResultDialog() {
 //        BottomSheetDialog dialog = new BottomSheetDialog().passData(heart_rate_bpm);
 //        dialog.show(getSupportFragmentManager(), "tag?");
-        onPause();
     }
 
     protected void createCameraPreview() {
@@ -400,6 +492,8 @@ public class CameraActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         startBackgroundThread();
+        setScreenOn();
+        idleHandler.removeCallbacks(idleRunnable);
         if (CameraView.isAvailable()) {
             openCamera();
         } else {
@@ -419,20 +513,20 @@ public class CameraActivity extends AppCompatActivity {
      * 開始跑圖表
      */
     private void startChartRun() {
-        if (isRunning) return;
+        if (chartIsRunning) return;
         if (chartThread != null) chartThread.interrupt();
 
         //簡略寫法
-        isRunning = true;
+        chartIsRunning = true;
         Runnable runnable = () -> {
             addData(50);
         };
 
         //簡略寫法
         chartThread = new Thread(() -> {
-            while (isRunning) {
+            while (chartIsRunning) {
                 runOnUiThread(runnable);
-                if (!isRunning) break;
+                if (!chartIsRunning) break;
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException e) {

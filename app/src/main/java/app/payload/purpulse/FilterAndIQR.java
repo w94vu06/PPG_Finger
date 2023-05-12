@@ -21,8 +21,8 @@ public class FilterAndIQR {
             double iqr = q3 - q1;
 
             // 計算上下界
-            double upperBound = q3 + 1.25 * iqr;
-            double lowerBound = q1 - 1.25 * iqr;
+            double upperBound = q3 + 1 * iqr;
+            double lowerBound = q1 - 1 * iqr;
 
             // 將超過上下界的值設為0
             for (int i = 0; i < RRI.length; i++) {
