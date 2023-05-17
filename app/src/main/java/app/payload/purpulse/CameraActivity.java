@@ -241,7 +241,7 @@ public class CameraActivity extends AppCompatActivity {
                 // in rolling average.
                 //在接下來18個取樣之間，程式會使用前面的取樣和當前取樣的加權平均值來計算移動平均值
                 else if (numCaptures > setHeartDetectTime && numCaptures < rollAvgStandard) {
-                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + fixDarkRed ) / (numCaptures - (setHeartDetectTime - 1));//改
+                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + fixDarkRed) / (numCaptures - (setHeartDetectTime - 1));//改
                 }
 
                 // From 49 on, the rolling average incorporates the last 30 rolling averages.
@@ -272,11 +272,12 @@ public class CameraActivity extends AppCompatActivity {
                 // Save previous two values
                 mLastLastRollingAverage = mLastRollingAverage;
                 mLastRollingAverage = mCurrentRollingAverage;
-            } else if (averageBlueThreshold != 0 && averageGreenThreshold != 0) {
-                idleHandler.postDelayed(idleRunnable, 15000);
-                qualityHandler.postDelayed(qualityRunnable, 5000);
-            } else {
+//            } else if (averageBlueThreshold != 0 && averageGreenThreshold != 0) {
+//                idleHandler.postDelayed(idleRunnable, 15000);
 //                qualityHandler.postDelayed(qualityRunnable, 5000);
+            } else {
+                qualityHandler.postDelayed(qualityRunnable, 5000);
+                idleHandler.postDelayed(idleRunnable, 15000);
             }
         }
     };
@@ -342,17 +343,18 @@ public class CameraActivity extends AppCompatActivity {
         mBackgroundThread = new HandlerThread("Camera Background");
         mBackgroundThread.start();
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
-
     }
 
     protected void stopBackgroundThread() {
-        mBackgroundThread.quitSafely();
-        try {
-            mBackgroundThread.join();
-            mBackgroundThread = null;
-            mBackgroundHandler = null;
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        if (mBackgroundThread != null) {
+            mBackgroundThread.quitSafely();
+            try {
+                mBackgroundThread.join();
+                mBackgroundThread = null;
+                mBackgroundHandler = null;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -476,16 +478,6 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * keep screen open
-     */
-    public void setScreenOn() {
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    }
-
-    public void setScreenOff() {
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    }
 
     //check Permission
     @Override
@@ -517,6 +509,17 @@ public class CameraActivity extends AppCompatActivity {
         setScreenOff();
         stopBackgroundThread();
         super.onPause();
+    }
+
+    /**
+     * keep screen open
+     */
+    public void setScreenOn() {
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    public void setScreenOff() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     /**

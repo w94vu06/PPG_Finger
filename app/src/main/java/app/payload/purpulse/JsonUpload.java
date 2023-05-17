@@ -97,7 +97,6 @@ public class JsonUpload {
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-
                     if (!response.isSuccessful()) {
                         uploadSuccess = false;
                         throw new IOException("Unexpected code " + response);
