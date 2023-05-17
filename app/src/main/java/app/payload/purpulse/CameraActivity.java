@@ -92,7 +92,9 @@ public class CameraActivity extends AppCompatActivity {
     private JsonUpload jsonUpload;
 
     long[] outlierRRI;
-    int fullAvgRed,fullAvgGreen,fullAvgBlue;
+    int fullAvgRed, fullAvgGreen, fullAvgBlue;
+    int fixDarkRed;
+    int fixAvgRedThreshold;
 
     @SuppressLint("MissingInflatedId")
     @Override
@@ -210,33 +212,41 @@ public class CameraActivity extends AppCompatActivity {
                 blueThreshold += blue;
             }
             //小畫面平均值
-            int averageRedThreshold = redThreshold / (height * width);
+            int averageRedThreshold = redThreshold / (height * width);// 0 1 2
             int averageGreenThreshold = greenThreshold / (height * width);
             int averageBlueThreshold = blueThreshold / (height * width);
             //整個畫面平均值
-            fullAvgRed = fullScreenRed / (height * width);
+            fullAvgRed = fullScreenRed / (height * width);// < 150
             fullAvgGreen = fullScreenGreen / (height * width);
             fullAvgBlue = fullScreenBlue / (height * width);
-//            Log.d("yyyy", "RED: " + averageRedThreshold + "\nGREEN: " + averageGreenThreshold + "\nBLUE: " + averageBlueThreshold);
+
+            Log.d("yyyy", "RED: " + averageRedThreshold + "\nGREEN: " + averageGreenThreshold + "\nBLUE: " + averageBlueThreshold);
+            if (fullAvgRed < 150) {
+                fixDarkRed = fullScreenRed * 2;
+                fixAvgRedThreshold = averageRedThreshold * 2;
+            } else {
+                fixDarkRed = fullScreenRed;
+                fixAvgRedThreshold = averageRedThreshold;
+            }
             //如果色素閥值是正確的才進行量測
-            if (averageRedThreshold == 2) {
+            if (fixAvgRedThreshold == 2 && averageGreenThreshold == 0 && averageBlueThreshold == 0) { //改
                 idleHandler.removeCallbacks(idleRunnable);
 
                 // Waits 20 captures, to remove startup artifacts.  First average is the sum.
                 //等待前幾個取樣，以去除啟動過程中的初始偏差
                 if (numCaptures == setHeartDetectTime) {
-                    mCurrentRollingAverage = fullScreenRed;
+                    mCurrentRollingAverage = fixDarkRed;//改
                 }
                 // Next 18 averages needs to incorporate the sum with the correct N multiplier
                 // in rolling average.
                 //在接下來18個取樣之間，程式會使用前面的取樣和當前取樣的加權平均值來計算移動平均值
                 else if (numCaptures > setHeartDetectTime && numCaptures < rollAvgStandard) {
-                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + fullScreenRed) / (numCaptures - (setHeartDetectTime - 1));
+                    mCurrentRollingAverage = (mCurrentRollingAverage * (numCaptures - setHeartDetectTime) + fixDarkRed ) / (numCaptures - (setHeartDetectTime - 1));//改
                 }
 
                 // From 49 on, the rolling average incorporates the last 30 rolling averages.
                 else if (numCaptures >= rollAvgStandard) {
-                    mCurrentRollingAverage = (mCurrentRollingAverage * 29 + fullScreenRed) / 30;
+                    mCurrentRollingAverage = (mCurrentRollingAverage * 29 + fixDarkRed) / 30;//改
                     if (mLastRollingAverage > mCurrentRollingAverage && mLastRollingAverage > mLastLastRollingAverage && mNumBeats < captureRate) {
                         mTimeArray[mNumBeats] = System.currentTimeMillis();
                         mNumBeats++;

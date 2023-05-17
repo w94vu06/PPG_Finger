@@ -33,20 +33,20 @@ import okhttp3.Response;
 import okhttp3.TlsVersion;
 
 public class JsonUpload {
-    private Double AF_Similarity, AI_Depression, AI_Heart_age, AI_bshl, AI_bshl_pa, AI_dis, AI_dis_pa,
-            AI_medic, BMI, BPc_dia, BPc_sys, BSc, Excellent_no, Lf_Hf, RMSSD, R_height, Shannon_h,
-            T_height, Total_Power, ULF, Unacceptable_no, VHF, VLF, dis0bs1_0, dis0bs1_1, dis1bs1_0,
-            dis1bs1_1, ecg_Arr, ecg_Arr_percentage, ecg_PVC, ecg_PVC_percentage, ecg_QTc, ecg_Rbv,
-            ecg_Tbv, ecg_hr_max, ecg_hr_mean, ecg_hr_min, ecg_rsp, hbp, hr_rsp_rate, meanNN, miny,
-            miny_local_total, mood_state, pNN50, sdNN, skin_touch, sym_score_shift066, sys, t_error,
-            total_scores, unhrv, way_eat, way_eat_pa, waybp1_0_dia, waybp1_0_sys, waybp1_1_dia,
-            waybp1_1_sys, waybs1_0, waybs1_1, year10scores;
+    private Double AF_Similarity, AI_Depression, AI_Heart_age, AI_bshl, AI_dis,
+            AI_medic, BMI, BPc_dia, BPc_sys, BSc, Excellent_no, Lf_Hf, RMSSD, Shannon_h,
+            Total_Power, ULF, Unacceptable_no, VHF, VLF, dis0bs1_0, dis0bs1_1, dis1bs1_0,
+            dis1bs1_1, ecg_Arr, ecg_PVC, ecg_QTc, ecg_hr_max, ecg_hr_mean, ecg_hr_min, ecg_rsp,
+            hbp, hr_rsp_rate, meanNN, miny, miny_local_total, mood_state, pNN50, sdNN,
+            sym_score_shift066, t_error, total_scores, unhrv, way_eat, way_eat_pa, waybp1_0_dia,
+            waybp1_0_sys, waybp1_1_dia, year10scores;
 
     //    private static final MediaType MEDIA_TYPE_JSON = MediaType.parse("application/json");
     private static final OkHttpClient client = new OkHttpClient();
     private static String json;
     Handler mHandler = new MHandler();
     boolean uploadSuccess = true;
+
     public void jsonUploadToServer(long[] time_dist) {
 
         JSONArray jsonTimeDist = new JSONArray();
@@ -98,7 +98,7 @@ public class JsonUpload {
 
                 try (Response response = client.newCall(request).execute()) {
 
-                    if (!response.isSuccessful()){
+                    if (!response.isSuccessful()) {
                         uploadSuccess = false;
                         throw new IOException("Unexpected code " + response);
                     }
@@ -114,8 +114,8 @@ public class JsonUpload {
         }.start();
     }
 
-   class MHandler extends Handler {
-       @Override
+    class MHandler extends Handler {
+        @Override
         public void handleMessage(@NonNull Message msg) {
             super.handleMessage(msg);
             json = msg.obj.toString();
@@ -124,16 +124,14 @@ public class JsonUpload {
     }
 
     private void unpackJson() {
-        new Thread(()->{
+        new Thread(() -> {
             try {
                 JSONObject jsonObject = new JSONObject(json);
                 AF_Similarity = jsonObject.getDouble("AF_Similarity");
                 AI_Depression = jsonObject.getDouble("AI_Depression");
                 AI_Heart_age = jsonObject.getDouble("AI_Heart_age");
                 AI_bshl = jsonObject.getDouble("AI_bshl");
-                AI_bshl_pa = jsonObject.getDouble("AI_bshl_pa");
                 AI_dis = jsonObject.getDouble("AI_dis");
-                AI_dis_pa = jsonObject.getDouble("AI_dis_pa");
                 AI_medic = jsonObject.getDouble("AI_medic");
                 BMI = jsonObject.getDouble("BMI");
                 BPc_dia = jsonObject.getDouble("BPc_dia");
@@ -142,9 +140,7 @@ public class JsonUpload {
                 Excellent_no = jsonObject.getDouble("Excellent_no");
                 Lf_Hf = jsonObject.getDouble("Lf_Hf");
                 RMSSD = jsonObject.getDouble("RMSSD");
-                R_height = jsonObject.getDouble("R_height");
                 Shannon_h = jsonObject.getDouble("Shannon_h");
-                T_height = jsonObject.getDouble("T_height");
                 Total_Power = jsonObject.getDouble("Total_Power");
                 ULF = jsonObject.getDouble("ULF");
                 Unacceptable_no = jsonObject.getDouble("Unacceptable_no");
@@ -155,12 +151,8 @@ public class JsonUpload {
                 dis1bs1_0 = jsonObject.getDouble("dis1bs1_0");
                 dis1bs1_1 = jsonObject.getDouble("dis1bs1_1");
                 ecg_Arr = jsonObject.getDouble("ecg_Arr");
-                ecg_Arr_percentage = jsonObject.getDouble("ecg_Arr_percentage");
                 ecg_PVC = jsonObject.getDouble("ecg_PVC");
-                ecg_PVC_percentage = jsonObject.getDouble("ecg_PVC_percentage");
                 ecg_QTc = jsonObject.getDouble("ecg_QTc");
-                ecg_Rbv = jsonObject.getDouble("ecg_Rbv");
-                ecg_Tbv = jsonObject.getDouble("ecg_Tbv");
                 ecg_hr_max = jsonObject.getDouble("ecg_hr_max");
                 ecg_hr_mean = jsonObject.getDouble("ecg_hr_mean");
                 ecg_hr_min = jsonObject.getDouble("ecg_hr_min");
@@ -173,9 +165,7 @@ public class JsonUpload {
                 mood_state = jsonObject.getDouble("mood_state");
                 pNN50 = jsonObject.getDouble("pNN50");
                 sdNN = jsonObject.getDouble("sdNN");
-                skin_touch = jsonObject.getDouble("skin_touch");
                 sym_score_shift066 = jsonObject.getDouble("sym_score_shift066");
-                sys = jsonObject.getDouble("sys");
                 t_error = jsonObject.getDouble("t_error");
                 total_scores = jsonObject.getDouble("total_scores");
                 unhrv = jsonObject.getDouble("unhrv");
@@ -184,9 +174,6 @@ public class JsonUpload {
                 waybp1_0_dia = jsonObject.getDouble("waybp1_0_dia");
                 waybp1_0_sys = jsonObject.getDouble("waybp1_0_sys");
                 waybp1_1_dia = jsonObject.getDouble("waybp1_1_dia");
-                waybp1_1_sys = jsonObject.getDouble("waybp1_1_sys");
-                waybs1_0 = jsonObject.getDouble("waybs1_0");
-                waybs1_1 = jsonObject.getDouble("waybs1_1");
                 year10scores = jsonObject.getDouble("year10scores");
 
             } catch (JSONException e) {

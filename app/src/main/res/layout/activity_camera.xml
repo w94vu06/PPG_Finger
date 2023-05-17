@@ -10,8 +10,8 @@
         android:layout_gravity="center">
         <TextureView
             android:id="@+id/texture"
-            android:layout_width="150dp"
-            android:layout_height="150dp"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
             android:layout_gravity="center"
             android:screenOrientation="portrait" />
 <!--        <TextView-->

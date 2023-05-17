@@ -15,6 +15,7 @@ public class FilterAndIQR {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             double[] arr = Arrays.stream(RRI).asDoubleStream().toArray();
             Arrays.sort(arr);
+
             double q1 = findMedian(arr, 0, arr.length / 2 - 1);
             double q3 = findMedian(arr, arr.length / 2 + arr.length % 2, arr.length - 1);
             // 計算 IQR
@@ -33,7 +34,7 @@ public class FilterAndIQR {
             ArrayList<Long> clearArrayList = new ArrayList<>();
             // 找出所有不為0的值的平均數
             for (int i = 0; i < RRI.length; i++) {
-                if (RRI[i] != 0) {
+                if (RRI[i] != 0 && RRI[i] > 300 && RRI[i] < 1100) {
                     clearArrayList.add(RRI[i]);
                 }
             }
